@@ -137,6 +137,7 @@ def _exact_stability_clustering(
 
     m = gp.Model()
     m.ModelSense = GRB.MAXIMIZE
+    m.Params.OutputFlag = 0
 
     W = {
         (t, r, c): S[r, c]
@@ -361,6 +362,9 @@ def optimal_stability_clustering(
         Y, obj = _exact_stability_clustering(trees, similarities)
     else:
         Y, obj = _approximate_stability_clustering(trees, similarities, n_jobs)
+
+    n_total_nodes = sum(tree.num_leaves() for tree in perturbated_trees)
+    obj = obj / n_total_nodes
 
     if obj <= single_cluster_threshold:
         return np.ones(reference_features.shape[1], dtype=int)

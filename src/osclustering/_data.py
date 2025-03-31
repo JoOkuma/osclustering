@@ -1,4 +1,3 @@
-
 import numpy as np
 from sklearn import datasets
 
@@ -28,7 +27,7 @@ def sklearn_datasets(
     noisy_circles = datasets.make_circles(n_samples=n_samples, factor=0.5, noise=0.05)
     noisy_moons = datasets.make_moons(n_samples=n_samples, noise=0.05)
     blobs = datasets.make_blobs(n_samples=n_samples, random_state=8)
-    no_structure = np.random.rand(n_samples, 2), None
+    no_structure = np.random.rand(n_samples, 2), np.ones(n_samples, dtype=int)
 
     # Anisotropicly distributed data
     random_state = 170

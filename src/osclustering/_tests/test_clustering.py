@@ -1,5 +1,6 @@
-import matplotlib.pyplot as plt
+import numpy as np
 import pytest
+from sklearn.metrics import adjusted_rand_score
 
 from osclustering import (
     knn_mst_graph,
@@ -7,11 +8,18 @@ from osclustering import (
     trees_with_edge_ranking_perturbation,
 )
 from osclustering._data import sklearn_datasets
+from osclustering._utils import to_colors
+
+try:
+    import matplotlib.pyplot as plt
+
+except ImportError:
+    plt = None
 
 
 @pytest.mark.parametrize(
     "exact",
-    [True, False],
+    [False, True],
 )
 def test_stability_clustering(
     exact: bool,
@@ -24,20 +32,29 @@ def test_stability_clustering(
 
     for X, Y in sklearn_datasets(n_samples):
         graph = knn_mst_graph(X, n_neighbors=n_neighbors)
-        print("0")
         reference_tree, perturbated_trees = trees_with_edge_ranking_perturbation(
             graph,
             n_replicates,
             max_displacement,
         )
-        print("1")
 
         Yhat = optimal_stability_clustering(
             reference_tree,
             perturbated_trees,
             exact=exact,
         )
-        print("2")
+
+        score = adjusted_rand_score(Y, Yhat)
+
         if request.config.getoption("--plot"):
-            plt.scatter(X[:, 0], X[:, 1])
+            if plt is None:
+                raise ImportError("matplotlib is required to plot the results")
+
+            plt.scatter(X[:, 0], X[:, 1], c=to_colors(Yhat))
             plt.show()
+
+        n_gt_clusters = len(np.unique(Y))
+        n_pred_clusters = len(np.unique(Yhat))
+
+        assert n_gt_clusters == n_pred_clusters
+        assert score > 0.8
