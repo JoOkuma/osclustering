@@ -5,7 +5,7 @@ from sklearn.metrics import adjusted_rand_score
 from osclustering import (
     knn_mst_graph,
     optimal_stability_clustering,
-    trees_with_edge_ranking_perturbation,
+    trees_from_edge_ranking_perturbation,
 )
 from osclustering._data import sklearn_datasets
 from osclustering._utils import to_colors
@@ -32,7 +32,7 @@ def test_stability_clustering(
 
     for X, Y in sklearn_datasets(n_samples):
         graph = knn_mst_graph(X, n_neighbors=n_neighbors)
-        reference_tree, perturbated_trees = trees_with_edge_ranking_perturbation(
+        reference_tree, perturbated_trees = trees_from_edge_ranking_perturbation(
             graph,
             n_replicates,
             max_displacement,

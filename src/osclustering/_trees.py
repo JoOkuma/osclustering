@@ -16,7 +16,7 @@ HIER_TYPE_TO_FUNC = {
 }
 
 
-def trees_with_edge_ranking_perturbation(
+def trees_from_edge_ranking_perturbation(
     graph: sparse.csr_array,
     n_replicates: int,
     max_edge_displacement: int,
