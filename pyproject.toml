@@ -26,13 +26,18 @@ dependencies = [
   "numpy",
   "scipy",
   "higra",
+  "scanpy",
   "gurobipy",
   "cloudpickle",
 ]
 
 [project.optional-dependencies]
 test = [
+    "igraph",
+    "leidenalg",
+    "matplotlib",
     "pytest",
+    "pytest-cov",
 ]
 
 [project.urls]
