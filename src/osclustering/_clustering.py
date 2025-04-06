@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from typing import Sequence
 
@@ -9,6 +10,8 @@ from gurobipy import GRB
 
 from osclustering._multiprocessing import _multiprocessing_apply
 from osclustering._utils import _validate_tree
+
+LOG = logging.getLogger(__name__)
 
 
 def _parents_to_binary_features(parents: np.ndarray) -> sparse.csr_array:
@@ -303,8 +306,7 @@ def _approximate_stability_clustering(
     tree_size = trees[0].num_vertices()
 
     weights = np.zeros(tree_size)
-    # for similarity in similarities:
-    #     weights += optimal_assignment_weights(similarity)
+
     for node_weights in _multiprocessing_apply(
         _optimal_assignment_weights,
         similarities,
@@ -366,7 +368,10 @@ def optimal_stability_clustering(
     n_total_nodes = sum(tree.num_leaves() for tree in perturbated_trees)
     obj = obj / n_total_nodes
 
+    print(f"Cluster stability score: {obj:.4f}")
+
     if obj <= single_cluster_threshold:
+        LOG.info("Stability score is too low (%f), returning single cluster", obj)
         return np.ones(reference_features.shape[1], dtype=int)
 
     labels = _solution_to_labels(Y, reference_features)

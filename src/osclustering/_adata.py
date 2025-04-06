@@ -33,7 +33,6 @@ def dropout_counts(
 
     if not np.issubdtype(X.dtype, np.integer):
         LOG.warning("X is not an integer array. Converting to int.")
-        print(X.min(), X.max())
         X = X.astype(int)
 
     trees = []

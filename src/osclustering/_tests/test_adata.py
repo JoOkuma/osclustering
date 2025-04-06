@@ -3,7 +3,7 @@ import scanpy as sc
 
 from osclustering import optimal_stability_clustering
 from osclustering._adata import dropout_counts
-from osclustering._graph import KMSTNeighborsTransformer
+from osclustering._graph import knn_mst_graph
 
 
 def _pre_process_counts(adata: sc.AnnData) -> sc.AnnData:
@@ -22,8 +22,19 @@ def _pre_process_counts(adata: sc.AnnData) -> sc.AnnData:
     sc.pp.pca(adata)
 
     n_neighbors = 10
-    transformer = KMSTNeighborsTransformer(n_neighbors=n_neighbors)
-    sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=40, transformer=transformer)
+    n_pcs = 40
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+
+    adata.obsp["knn_mst_distances"] = knn_mst_graph(
+        adata.obsm["X_pca"][:, :n_pcs],
+        n_neighbors=n_neighbors,
+    )
+
+    adata.uns["knn_mst_neighbors"] = dict(
+        n_neighbors=n_neighbors,
+        n_pcs=n_pcs,
+        distances_key="knn_mst_distances",
+    )
 
     return adata
 
@@ -65,18 +76,24 @@ def test_pbmc3k(
 
     ref_adata = _pre_process_counts(adata)
 
-    perturbed_adata = dropout_counts(adata, dropout_rate=0.5)
+    perturbed_adata = dropout_counts(adata, dropout_rate=0.2, n_replicates=20)
     perturbed_adata = [_pre_process_counts(adata) for adata in perturbed_adata]
 
     trees = []
     for data in [ref_adata, *perturbed_adata]:
-        graph, weights = hg.adjacency_matrix_2_undirected_graph(data.obsp["distances"])
+        graph, weights = hg.adjacency_matrix_2_undirected_graph(
+            data.obsp["knn_mst_distances"]
+        )
         tree, _ = hg.watershed_hierarchy_by_number_of_parents(
             graph, weights, canonize_tree=False
         )
         trees.append(tree)
 
-    ref_adata.obs["os_clusters"] = optimal_stability_clustering(trees[0], trees[1:])
+    ref_adata.obs["os_clusters"] = optimal_stability_clustering(
+        trees[0],
+        trees[1:],
+        single_cluster_threshold=0.0,
+    )
     ref_adata.obs["os_clusters"] = ref_adata.obs["os_clusters"].astype("category")
 
     sc.tl.leiden(
