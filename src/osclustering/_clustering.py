@@ -195,6 +195,7 @@ def _optimal_assignment_weights(similarity: np.ndarray) -> np.ndarray:
     AssertionError
         If the number of rows doesn't match the shape of the similarity matrix.
     """
+    LOG.info("Solving optimal assignment weights")
     N = (similarity.shape[0] + 1) // 2
     # ignoring leaves and roots
     row, col = sparse.csgraph.min_weight_full_bipartite_matching(
@@ -203,16 +204,17 @@ def _optimal_assignment_weights(similarity: np.ndarray) -> np.ndarray:
     assert row.shape[0] == similarity.shape[0] - N - 1
 
     weights = np.zeros(similarity.shape[0], dtype=float)
-    weights[N:-1] = similarity[N + row, N + col]
+    weights[N + row] = similarity[N + row, N + col]
+    LOG.info("Optimal assignment weights solved")
     return weights
 
 
-def _solve_maximum_with_ancestor_constraints(
+def _solve_max_partition_with_ancestor_constraints(
     weights: np.ndarray,
     tree: hg.Tree,
 ) -> tuple[np.ndarray, float]:
     """
-    Solve the maximum problem considering ancestor constraints.
+    Solve the maximum partition problem considering ancestor constraints.
 
     Parameters
     ----------
@@ -234,6 +236,7 @@ def _solve_maximum_with_ancestor_constraints(
     and combining solutions of child nodes to get the optimal solution
     for parent nodes.
     """
+    LOG.info("Solving maximum partition problem with ancestor constraints")
     tree_size = tree.num_vertices()
     graph_size = tree.num_leaves()
     num_children = hg.attribute_area(tree)
@@ -278,14 +281,14 @@ def _solve_maximum_with_ancestor_constraints(
     return solution, obj_weight
 
 
-def _approximate_stability_clustering(
+def _approximate_stability_clustering_weights(
     trees: list[hg.Tree],
     similarities: list[np.ndarray],
     n_jobs: int,
 ) -> tuple[np.ndarray, float]:
     """
-    Solve the rank stable clustering problem with one to all relationships
-    using approximation with optimal assigning and dynamic programming
+    Creates the weights for the rank stable clustering problem with one to all
+    relationships using approximation with optimal assigning.
 
     Parameters
     ----------
@@ -298,8 +301,8 @@ def _approximate_stability_clustering(
 
     Returns
     -------
-        dict[int, float]
-        ILP solution by sample index and objective value.
+    np.ndarray
+        Array of weights for each node in the tree.
     """
     assert len(trees) == len(similarities) + 1
 
@@ -314,7 +317,29 @@ def _approximate_stability_clustering(
     ):
         weights += node_weights
 
-    return _solve_maximum_with_ancestor_constraints(weights, trees[0])
+    return weights
+
+
+def _similarity_function(
+    x_features: sparse.csr_array,
+    y_features: sparse.csr_array,
+) -> np.ndarray:
+    """
+    Compute the similarity between two binary feature matrices.
+
+    Parameters
+    ----------
+    x_features : sparse.csr_array
+        Binary features of x.
+    y_features : sparse.csr_array
+        Binary features of y.
+
+    Returns
+    -------
+    np.ndarray
+        Similarity between x and y.
+    """
+    return x_features @ y_features.T.astype(np.int32)
 
 
 def optimal_stability_clustering(
@@ -323,6 +348,7 @@ def optimal_stability_clustering(
     exact: bool = False,
     single_cluster_threshold: float = 0.9,
     n_jobs: int = 1,
+    return_tree_weights: bool = False,
 ) -> np.ndarray:
     """
     Perform optimal stability clustering.
@@ -338,21 +364,32 @@ def optimal_stability_clustering(
     single_cluster_threshold : float, default=0.9
         If the objective value is lower than this threshold, return a single cluster.
         Set to 0 to disable this behavior.
+    return_tree_weights : bool, default=False
+        If True, return the weights for each node in the tree.
+        This is only allowed if exact is False.
     n_jobs : int, default=1
         Number of jobs to run in parallel.
 
     Returns
     -------
-    np.ndarray
+    np.ndarray | tuple[np.ndarray, np.ndarray]
         Final clustering.
     """
+    if return_tree_weights and exact:
+        raise ValueError(
+            "'return_tree_weights=True' is only allowed if 'exact=False'",
+        )
+
     reference_tree = _validate_tree(reference_tree)
     perturbated_trees = [_validate_tree(tree) for tree in perturbated_trees]
 
     reference_features = _parents_to_binary_features(reference_tree.parents())
     similarities = _multiprocessing_apply(
         lambda x: _clear_leaves_and_root_weights(
-            reference_features @ _parents_to_binary_features(x.parents()).T.astype(int)
+            _similarity_function(
+                reference_features,
+                _parents_to_binary_features(x.parents()),
+            )
         ),
         perturbated_trees,
         n_jobs,
@@ -363,7 +400,12 @@ def optimal_stability_clustering(
     if exact:
         Y, obj = _exact_stability_clustering(trees, similarities)
     else:
-        Y, obj = _approximate_stability_clustering(trees, similarities, n_jobs)
+        tree_weights = _approximate_stability_clustering_weights(
+            trees, similarities, n_jobs
+        )
+        Y, obj = _solve_max_partition_with_ancestor_constraints(
+            tree_weights, reference_tree
+        )
 
     n_total_nodes = sum(tree.num_leaves() for tree in perturbated_trees)
     obj = obj / n_total_nodes
@@ -375,5 +417,8 @@ def optimal_stability_clustering(
         return np.ones(reference_features.shape[1], dtype=int)
 
     labels = _solution_to_labels(Y, reference_features)
+
+    if return_tree_weights:
+        return labels, tree_weights
 
     return labels

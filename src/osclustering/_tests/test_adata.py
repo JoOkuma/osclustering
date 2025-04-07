@@ -1,5 +1,10 @@
 import higra as hg
+import matplotlib.pyplot as plt
+import numpy as np
 import scanpy as sc
+import scipy.cluster.hierarchy as sch
+from matplotlib import colormaps
+from matplotlib.colors import to_hex
 
 from osclustering import optimal_stability_clustering
 from osclustering._adata import dropout_counts
@@ -57,8 +62,6 @@ def test_pbmc3k(
         adata, qc_vars=["mt", "ribo", "hb"], inplace=True, log1p=True
     )
     if show:
-        import matplotlib.pyplot as plt
-
         sc.pl.violin(
             adata,
             ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
@@ -76,7 +79,7 @@ def test_pbmc3k(
 
     ref_adata = _pre_process_counts(adata)
 
-    perturbed_adata = dropout_counts(adata, dropout_rate=0.2, n_replicates=20)
+    perturbed_adata = dropout_counts(adata, dropout_rate=0.2, n_replicates=10)
     perturbed_adata = [_pre_process_counts(adata) for adata in perturbed_adata]
 
     trees = []
@@ -89,12 +92,54 @@ def test_pbmc3k(
         )
         trees.append(tree)
 
-    ref_adata.obs["os_clusters"] = optimal_stability_clustering(
+    os_clusters, os_weights = optimal_stability_clustering(
         trees[0],
         trees[1:],
         single_cluster_threshold=0.0,
+        return_tree_weights=True,
     )
+
+    cmap = colormaps["magma"]
+    norm_os_weights = os_weights / (len(perturbed_adata) * hg.attribute_area(trees[0]))
+
+    irrelevant_nodes = norm_os_weights < 0.8
+
+    tree = trees[0]
+    area = hg.attribute_area(tree)
+    tree, node_map = hg.simplify_tree(tree, irrelevant_nodes)
+
+    print("Num significant nodes", (~irrelevant_nodes).sum())
+
+    binary_tree, binary_tree_node_map = hg.tree_2_binary_tree(tree)
+    binary_tree_os_weights = norm_os_weights[node_map][binary_tree_node_map]
+    binary_tree_area = area[node_map][binary_tree_node_map]
+
+    linkage_matrix = hg.binary_hierarchy_to_scipy_linkage_matrix(
+        binary_tree, binary_tree_area
+    )
+
+    sch.dendrogram(
+        linkage_matrix,
+        link_color_func=lambda x: to_hex(cmap(binary_tree_os_weights[x])),
+        truncate_mode="level",
+        p=15,
+    )
+    plt.show()
+
+    ref_adata.obs["os_clusters"] = os_clusters
     ref_adata.obs["os_clusters"] = ref_adata.obs["os_clusters"].astype("category")
+
+    columns = []
+
+    for i, n in enumerate(range(tree.num_leaves(), tree.num_vertices() - 1)):
+        _, sub_tree_node_map = tree.sub_tree(n)
+        leaves = sub_tree_node_map[sub_tree_node_map < tree.num_leaves()]
+        labels = np.zeros(tree.num_leaves(), dtype=bool)
+        labels[leaves] = True
+        col_name = f"os_cluster_{i}"
+        ref_adata.obs[col_name] = labels
+        ref_adata.obs[col_name] = ref_adata.obs[col_name].astype("category")
+        columns.append(col_name)
 
     sc.tl.leiden(
         ref_adata,
@@ -104,9 +149,7 @@ def test_pbmc3k(
     )
 
     sc.tl.umap(ref_adata)
-    sc.pl.umap(ref_adata, color=["leiden", "os_clusters"])
-
-    import matplotlib.pyplot as plt
+    sc.pl.umap(ref_adata, color=["leiden", "os_clusters"] + columns, alpha=0.5)
 
     plt.show()
 
